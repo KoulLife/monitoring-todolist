@@ -7,8 +7,9 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: tododb
-      MYSQL_USER: root
-      MYSQL_PASSWORD: root
+      # 전용 계정 쓰고 싶으면 아래 두 줄도 사용하고, app 환경변수도 맞추세요.
+      # MYSQL_USER: todo
+      # MYSQL_PASSWORD: todo1234
     ports:
       - "3306:3306"
     volumes:
@@ -21,27 +22,118 @@ services:
     networks:
       - todo-network
 
-#  app:
-#    build:
-#      context: .
-#      dockerfile: Dockerfile
-#    container_name: todo-app
-#    ports:
-#      - "8080:8080"
-#    depends_on:
-#      mariadb:
-#        condition: service_healthy
-#    environment:
-#      SPRING_DATASOURCE_URL: jdbc:mariadb://mariadb:3306/tododb
-#      SPRING_DATASOURCE_USERNAME: root
-#      SPRING_DATASOURCE_PASSWORD: root
-#    networks:
-#      - todo-network
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: todo-app
+    ports:
+      - "8080:8080"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    environment:
+      # --- Spring DataSource ---
+      SPRING_DATASOURCE_URL: jdbc:mariadb://mariadb:3306/tododb
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root
+
+      # --- OpenTelemetry(Java) Agent ---
+      JAVA_TOOL_OPTIONS: "-javaagent:/otel/javaagent/opentelemetry-javaagent.jar"
+
+      # --- OTLP 설정 (Collector로 전송) ---
+      OTEL_SERVICE_NAME: todo-app
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: otlp
+      OTEL_TRACES_SAMPLER: parentbased_always_on
+    volumes:
+      - ./opentelemetry-javaagent.jar:/otel/javaagent/opentelemetry-javaagent.jar:ro
+    networks:
+      - todo-network
+
+  # OpenTelemetry Collector
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.96.0
+    container_name: otel-collector
+    command: [ "--config=/etc/otel-collector-config.yaml" ]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    # Prometheus가 collector의 exporter(8889)를 "서비스 이름"으로 긁도록 같은 네트워크에 둡니다.
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP (옵션)
+      - "8889:8889"   # Prometheus exporter (Prometheus가 이걸 스크레이프)
+      - "8888:8888"   # Collector 내부 진단 UI (옵션)
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    restart: on-failure
+    networks:
+      - todo-network
+
+  # ClickHouse (로그/트레이스 저장)
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: clickhouse
+    environment:
+      - CLICKHOUSE_DB=otel
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+      # 보안 필요 시 사용자/비번 추가 설정 권장
+    ports:
+      - "8123:8123"   # HTTP
+      - "9000:9000"   # Native
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- 'http://localhost:8123/?query=SELECT%201' || exit 1" ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    networks:
+      - todo-network
+
+  # Prometheus (메트릭 수집)
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - otel-collector
+      - app
+    networks:
+      - todo-network
+
+  # Grafana (시각화: Prometheus + ClickHouse)
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: grafana
+    environment:
+      - GF_INSTALL_PLUGINS=grafana-clickhouse-datasource
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+    depends_on:
+      - prometheus
+      - clickhouse
+    networks:
+      - todo-network
 
 volumes:
   mariadb_data:
+  clickhouse_data:
 
 networks:
   todo-network:
     driver: bridge
-

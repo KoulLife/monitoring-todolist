@@ -32,8 +32,15 @@ dependencies {
 	annotationProcessor 'org.projectlombok:lombok'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+
+	implementation 'io.micrometer:micrometer-registry-prometheus:1.16.0'
 }
 
-tasks.named('test') {
-	useJUnitPlatform()
+// plain jar 비활성화 → bootJar만 생성
+tasks.named('jar') { enabled = false }
+
+// bootJar 파일명을 고정 → Dockerfile에서 명확히 집어오게
+tasks.named('bootJar') {
+	archiveFileName = "app.jar"
 }
