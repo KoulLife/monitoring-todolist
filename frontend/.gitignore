@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Builds / Bundles
+dist/
+build/
+.tmp/
+.cache/
+.next/
+out/
+
+# Testing
+coverage/
+.nyc_output/
+
+# Env & local config
+.env
+.env.*.local
+*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logs/
+*.log
+
+# Editors / OS
+.vscode/
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Misc
+.eslintcache
+.stylelintcache
+*.tsbuildinfo
+

@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  mariadb:
+    image: mariadb:latest
+    container_name: todo-mariadb
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: tododb
+      MYSQL_USER: root
+      MYSQL_PASSWORD: root
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - todo-network
+
+#  app:
+#    build:
+#      context: .
+#      dockerfile: Dockerfile
+#    container_name: todo-app
+#    ports:
+#      - "8080:8080"
+#    depends_on:
+#      mariadb:
+#        condition: service_healthy
+#    environment:
+#      SPRING_DATASOURCE_URL: jdbc:mariadb://mariadb:3306/tododb
+#      SPRING_DATASOURCE_USERNAME: root
+#      SPRING_DATASOURCE_PASSWORD: root
+#    networks:
+#      - todo-network
+
+volumes:
+  mariadb_data:
+
+networks:
+  todo-network:
+    driver: bridge
+
