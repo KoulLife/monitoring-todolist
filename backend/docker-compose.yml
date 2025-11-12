@@ -7,9 +7,6 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: tododb
-      # 전용 계정 쓰고 싶으면 아래 두 줄도 사용하고, app 환경변수도 맞추세요.
-      # MYSQL_USER: todo
-      # MYSQL_PASSWORD: todo1234
     ports:
       - "3306:3306"
     volumes:
@@ -58,12 +55,11 @@ services:
 
   # OpenTelemetry Collector
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.96.0
-    container_name: otel-collector
-    command: [ "--config=/etc/otel-collector-config.yaml" ]
+    image: otel/opentelemetry-collector-contrib:0.96.0  # Collector 확장 버전
+    container_name: otel-collector  # 명시적으로 이름 지정
+    command: [ "--config=/etc/otel-collector-config.yaml" ] # Collector가 실행될 때 사용할 설정 파일 경로 (컨테이너 내부 경로)
     volumes:
-      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
-    # Prometheus가 collector의 exporter(8889)를 "서비스 이름"으로 긁도록 같은 네트워크에 둡니다.
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro # 설정파일을 컨테이너 내부로 마운트. ro: 읽기전용
     ports:
       - "4317:4317"   # OTLP gRPC
       - "4318:4318"   # OTLP HTTP (옵션)
@@ -81,31 +77,33 @@ services:
     image: clickhouse/clickhouse-server:24.8
     container_name: clickhouse
     environment:
-      - CLICKHOUSE_DB=otel
-      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
-      # 보안 필요 시 사용자/비번 추가 설정 권장
+      - CLICKHOUSE_DB=otel  # 데이터베이스 이름을 otel로 생성
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1  # 사용자/권한 관리 기능(Access Control) 을 활성화
+      - CLICKHOUSE_USER=otel_user
+      - CLICKHOUSE_PASSWORD=secret123
+
     ports:
       - "8123:8123"   # HTTP
       - "9000:9000"   # Native
     volumes:
       - clickhouse_data:/var/lib/clickhouse
     healthcheck:
-      test: [ "CMD-SHELL", "wget -qO- 'http://localhost:8123/?query=SELECT%201' || exit 1" ]
-      interval: 5s
-      timeout: 3s
-      retries: 30
-      start_period: 10s
+      test: [ "CMD-SHELL", "wget -qO- 'http://localhost:8123/?query=SELECT%201' || exit 1" ]  # 헬스체크 명령. 실패 시 exit code 1 반환.
+      interval: 5s  # 5초마다 헬스체크 수행. 실패하면 컨테이너 상태를 unhealthy 로 표시
+      timeout: 3s # 3초 이내로 받아야 성공으로 간주
+      retries: 30 # 최대 30회 재시도 (즉, 최대 약 150초 대기)
+      start_period: 10s # 기동 후 10초는 “준비 시간”으로 간주 (이 시간엔 실패로 판단하지 않음)
     networks:
       - todo-network
 
   # Prometheus (메트릭 수집)
   prometheus:
-    image: prom/prometheus:v2.55.1
+    image: prom/prometheus:v2.55.1  # 로그, 메트릭, 트레이스 데이터 저장에 적합
     container_name: prometheus
     command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--config.file=/etc/prometheus/prometheus.yml"  # Prometheus 실행 시 설정 파일 경로를 명시적으로 지정
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro  # 설정파일을 컨테이너에 마운트
     ports:
       - "9090:9090"
     depends_on:
@@ -116,10 +114,10 @@ services:
 
   # Grafana (시각화: Prometheus + ClickHouse)
   grafana:
-    image: grafana/grafana:11.1.0
-    container_name: grafana
+    image: grafana/grafana:11.1.0 # 그라파나 공식 이미지
+    container_name: grafana # 서비스명 설정
     environment:
-      - GF_INSTALL_PLUGINS=grafana-clickhouse-datasource
+      - GF_INSTALL_PLUGINS=grafana-clickhouse-datasource  # 부팅 시 자동으로 Clickhouse 데이터 소스 플러그인을 설치. 플러그인을 /var/lib/grafana/plugins 경로에 저장
     ports:
       - "3000:3000"
     volumes:
@@ -134,6 +132,8 @@ volumes:
   mariadb_data:
   clickhouse_data:
 
+# 내부 DNS 덕분에 컨테이너 이름이 호스트명으로 인식
+# 외부 통신은 NAT를 통해
 networks:
   todo-network:
     driver: bridge
